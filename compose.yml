@@ -1,0 +1,92 @@
+x-common-deploy: &common-deploy
+    resources:
+        limits:
+            cpus: "1"
+            memory: "950m"
+        reservations:
+            cpus: "1"
+            memory: "950m"
+
+x-common-watch: &common-watch
+    watch:
+        - action: "sync"
+          path: "./"
+          target: "/app/"
+
+services:
+    weather_service_db:
+        build:
+            context: "./"
+            dockerfile: "./.docker/mysql/Dockerfile"
+        container_name: "weather_service_db"
+        volumes:
+            - "./.docker/mysql/data/:/var/lib/mysql/"
+        environment:
+            MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD:-wr57Qjkstrete67kjSEsdfghsdr5X9i}"
+            MYSQL_USER: "${MYSQL_USER:-weather_service}"
+            MYSQL_PASSWORD: "${MYSQL_PASSWORD:-awe456e7kjsZXdertw35iASkjgrt}"
+            MYSQL_DATABASE: "${MYSQL_DATABASE:-weather_service}"
+        command:
+            - "--character-set-server=utf8mb4"
+            - "--collation-server=utf8mb4_general_ci"
+        ports:
+            - "3306:3306"
+        healthcheck:
+            test: [ "CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "root", "-p$${MYSQL_ROOT_PASSWORD}" ]
+            interval: 5s
+            timeout: 3s
+            retries: 20
+        networks:
+            - "weather_service_network"
+
+    weather_service_nginx:
+        container_name: "weather_service_nginx"
+        ports:
+            - "80:80"
+        build:
+            context: "./"
+            dockerfile: "./.docker/web/nginx/Dockerfile"
+            args:
+                ENV: "${APP_ENV:-dev}"
+        extra_hosts:
+            - "host.docker.internal:host-gateway"
+        develop:
+            <<: *common-watch
+        depends_on:
+            weather_service_php:
+                condition: "service_started"
+        deploy:
+            <<: *common-deploy
+        networks:
+            - "weather_service_network"
+
+    weather_service_php:
+        container_name: "weather_service_php"
+        build:
+            context: "./"
+            dockerfile: "./.docker/web/php/Dockerfile"
+            args:
+                ENV: "${APP_ENV:-dev}"
+        expose:
+            - "9000"
+        develop:
+            <<: *common-watch
+        depends_on:
+            weather_service_db:
+                condition: "service_healthy"
+        deploy:
+            <<: *common-deploy
+        networks:
+            - "weather_service_network"
+
+#    weather_service_redis:
+#        container_name: "weather_service_redis"
+#        image: "redis:7-alpine"
+#        ports:
+#            - "6379:6379"
+#        networks:
+#            - "weather_service_network"
+
+networks:
+    weather_service_network:
+        driver: "bridge"
